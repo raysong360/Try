@@ -13,35 +13,62 @@ Dt = Differential(t)
 Dz = Differential(z)
 @variables Da(..) Ky(..) φw(..) Pws(..) Qst(..)
 
-# @parameters h_const, ρa, A, P, Cpa, Cpv, Cpd, Cpl, Cpm, hv, fd, fm, Patm, p, p0, T0, u, Sh_const    # Dependent variables
+@parameters Ka, Nu, a, b, r0, A, P, h_const, Sh_const, u, ρa, Cpa, Cpv, Cpd, Cpl, Cpm, hv, fd, fm, Patm, p, p0, T0    # Dependent variables
 
-Ka = 0.0321           # λ in Zhang 2023; Thermal conductivity of dry air (W/(m·K))
-Nu = 2.45
-a = 0.0015            # Half duct height (m)
-b = 0.0015            # Half duct width (m)
-r0 = 0.2              # Radius of desiccant wheel (m)
-A = 2 * a * b         # Cross-sectional area (m^2)
-P = 2b + 2 * sqrt(b^2 + (a * π)^2) * (3 + (2b / (a * π))^2) / (4 + (2b / (a * π))^2)  # Perimeter (m)
-h_const = (Nu * Ka * P) / (4 * A)  # heat transfer coefficient
+Ka_v = 0.0321           # λ in Zhang 2023; Thermal conductivity of dry air (W/(m·K))
+Nu_v = 2.45
+a_v = 0.0015            # Half duct height (m)
+b_v = 0.0015            # Half duct width (m)
+r0_v = 0.2              # Radius of desiccant wheel (m)
+A_v = 2 * a * b         # Cross-sectional area (m^2)
+P_v = 2b + 2 * sqrt(b^2 + (a * π)^2) * (3 + (2b / (a * π))^2) / (4 + (2b / (a * π))^2)  # Perimeter (m)
+h_const_v = (Nu * Ka * P) / (4 * A)  # heat transfer coefficient
 
-h_const = h_const                 # Calculated heat transfer coefficient
-Sh_const = 2.45                   # Sherwood number as constant
-u = 3.0                          # Air velocity on both the process and regeneration side (m/s)
-ρa = 1.2                          # Air density (kg/m3)
-A = A                        # Cross-sectional area
-P = P                      # Perimeter
-Cpa = 1009                        # Specific heat of dry air (J/(kg·K))
-Cpv = 2028                        # Specific heat of water vapor (J/(kg·K))
-Cpd = 921                         # Specific heat of desiccant (J/(kg·K))
-Cpl = 4179                       # Specific heat of liquid water (J/(kg·K))
-Cpm = 900                         # Specific heat of matrix materials (J/(kg·K))
-hv = 2358.0e3                     # Evaporation latent heat of water (J/(kg))
-fd = 0.005                        # Specific desiccant mass (kg/m)
-fm = 0.003                       # Specific matrix mass (kg/m)
-Patm = 1.013e5                    # Atmospheric pressure (Pa)
-p = 1.013e5                       # Air pressure (Pa)
-p0 = 0.98e5                       # Reference pressure (Pa)
-T0 = 256.0
+Sh_const_v = 2.45                   # Sherwood number as constant
+u_v = 3.0                          # Air velocity on both the process and regeneration side (m/s)
+ρa_v = 1.2                          # Air density (kg/m3)
+Cpa_v = 1009                        # Specific heat of dry air (J/(kg·K))
+Cpv_v = 2028                        # Specific heat of water vapor (J/(kg·K))
+Cpd_v = 921                         # Specific heat of desiccant (J/(kg·K))
+Cpl_v = 4179                       # Specific heat of liquid water (J/(kg·K))
+Cpm_v = 900                         # Specific heat of matrix materials (J/(kg·K))
+hv_v = 2358.0e3                     # Evaporation latent heat of water (J/(kg))
+fd_v = 0.005                        # Specific desiccant mass (kg/m)
+fm_v = 0.003                       # Specific matrix mass (kg/m)
+Patm_v = 1.013e5                    # Atmospheric pressure (Pa)
+p_v = 1.013e5                       # Air pressure (Pa)
+p0_v = 0.98e5                       # Reference pressure (Pa)
+T0_v = 256.0
+
+pars = [Ka, Nu, a, b, r0, A, P, h_const, Sh_const, u, ρa, Cpa, Cpv, Cpd, Cpl, Cpm, hv, fd, fm, Patm, p, p0, T0]
+
+pars_value = Dict(
+       Ka => Ka_v,           # λ in Zhang 2023; Thermal conductivity of dry air (W/(m·K))
+       Nu => Nu_v,
+       a => a_v,            # Half duct height (m)
+       b => b_v,            # Half duct width (m)
+       r0 => r0_v,              # Radius of desiccant wheel (m)
+       A => A_v,         # Cross-sectional area (m^2)
+       P => P_v,  # Perimeter (m)
+       h_const => h_const_v,  # heat transfer coefficient
+       Sh_const => Sh_const_v,                   # Sherwood number as constant
+       u => u_v,                          # Air velocity on both the process and regeneration side (m/s)
+       ρa => ρa_v,                          # Air density (kg/m3)
+       Cpa => Cpa_v,                        # Specific heat of dry air (J/(kg·K))
+       Cpv => Cpv_v,                        # Specific heat of water vapor (J/(kg·K))
+       Cpd => Cpd_v,                         # Specific heat of desiccant (J/(kg·K))
+       Cpl => Cpl_v,                       # Specific heat of liquid water (J/(kg·K))
+       Cpm => Cpm_v,                         # Specific heat of matrix materials (J/(kg·K))
+       hv => hv_v,                     # Evaporation latent heat of water (J/(kg))
+       fd => fd_v,                        # Specific desiccant mass (kg/m)
+       fm => fm_v,                       # Specific matrix mass (kg/m)
+       Patm => Patm_v,                    # Atmospheric pressure (Pa)
+       p => p_v,                       # Air pressure (Pa)
+       p0 => p0_v,                       # Reference pressure (Pa)
+       T0 => T0_v
+       )
+
+
 
 
 ### 1. Governing Equations ###
@@ -126,7 +153,7 @@ vars = [ωa(t,z), Ta(t,z), W(t,z), Td(t,z), ωd(t,z), φw(t,z), Pws(t,z), Da(t,z
 
 
 # Define the PDE system with only equations, time, and spatial variables
-@named DW_model_pdesys = PDESystem(eqs, bcs, domains, [t,z], vars) # parameters
+@named DW_model_pdesys = PDESystem(eqs, bcs, domains, [t,z], vars, pars; defaults=pars_value) 
 
 dz = L/25
 discretization = MOLFiniteDifference([z=>dz], t, approx_order=2)
