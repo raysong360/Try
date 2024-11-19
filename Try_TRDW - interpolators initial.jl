@@ -119,53 +119,77 @@ end
 
 z_points = range(0.0, stop=L, length=n_seg+1)
 
-initial_values = Dict(
-    :W => [0.1 for _ in 1:n_seg+1],
-    :ωa => [0.02 for _ in 1:n_seg+1],
-    :Ta => [273.15 + 60 for _ in 1:n_seg+1],
-    :ωd => [0.015 for _ in 1:n_seg+1],
-    :Td => [273.15 + 60 for _ in 1:n_seg+1]
-)
+function generate_bcs(; W_ini, ωa_ini, Ta_ini, ωd_ini, Td_ini, n_seg, z_points, whichphase)
+    # 定义初始值
+    initial_values = Dict(
+        :W => [W_ini for _ in 1:n_seg+1],
+        :ωa => [ωa_ini for _ in 1:n_seg+1],
+        :Ta => [Ta_ini for _ in 1:n_seg+1],
+        :ωd => [ωd_ini for _ in 1:n_seg+1],
+        :Td => [Td_ini for _ in 1:n_seg+1]
+    )
 
-interpolators = Dict()
-functions = Dict()
+    # 初始化插值器和函数
+    interpolators = Dict()
+    functions = Dict()
 
-for (key, values) in initial_values
-    let key = key, values = values
-        local itp
-        itp = scale(interpolate(values, BSpline(Cubic(Line(OnGrid())))), z_points)
-        local func_name
-        func_name = Symbol("sitp_$(key)_function")
-        
-        @eval begin
-            $(func_name)(z) = $itp(z)
-            @register_symbolic $(func_name)(z)
+    for (key, values) in initial_values
+        let key = key, values = values
+            local itp
+            itp = scale(interpolate(values, BSpline(Cubic(Line(OnGrid())))), z_points)
+            local func_name
+            func_name = Symbol("sitp_$(key)_function")
+            
+            @eval begin
+                $(func_name)(z) = $itp(z)
+                @register_symbolic $(func_name)(z)
+            end
+
+            interpolators[key] = itp
+            functions[key] = eval(func_name)
         end
+    end
 
-        interpolators[key] = itp
-        functions[key] = eval(func_name)
+    if whichphase == "Reg"
+        return [
+            Ta(t,0) ~ Ta_reg_in,
+            ωa(t,0) ~ ωa_reg_in,
+            Dz(Td(t,0)) ~ 0.0,
+            Dz(Td(t,L)) ~ 0.0,
+            Dz(W(t,0)) ~ 0.0,
+            Dz(W(t,L)) ~ 0.0,
+
+            ωa(0,z) ~ functions[:ωa](z),
+            Ta(0,z) ~ functions[:Ta](z),
+            W(0,z) ~ functions[:W](z),
+            ωd(0,z) ~ functions[:ωd](z),
+            Td(0,z) ~ functions[:Td](z)
+        ]
+    elseif whichphase == "Pro"
+        return [
+            Ta(t,L) ~ Ta_pro_in,
+            ωa(t,L) ~ ωa_pro_in,
+            Dz(Td(t,0)) ~ 0.0,
+            Dz(Td(t,L)) ~ 0.0,
+            Dz(W(t,0)) ~ 0.0,
+            Dz(W(t,L)) ~ 0.0,
+
+            ωa(0,z) ~ functions[:ωa](z),
+            Ta(0,z) ~ functions[:Ta](z),
+            W(0,z) ~ functions[:W](z),
+            ωd(0,z) ~ functions[:ωd](z),
+            Td(0,z) ~ functions[:Td](z)
+        ]
+    else
+        throw(ArgumentError("Invalid phase type: $whichphase. Expected 'Reg' or 'Pro'."))
     end
 end
 
-bcs = [
-    Ta(t,0) ~ Ta_boundary(t),
-    ωa(t,0) ~ ωa_boundary(t),
-    Dz(Td(t,0)) ~ 0.0,
-    Dz(Td(t,L)) ~ 0.0,
-    Dz(W(t,0)) ~ 0.0,
-    Dz(W(t,L)) ~ 0.0,
+bcs = generate_bcs(W_ini=0.1, ωa_ini=0.02, Ta_ini=273.15 + 60., ωd_ini=0.015, Td_ini=273.15 + 60., n_seg=n_seg, z_points=z_points, whichphase="Reg")
 
-    ωa(0,z) ~ functions[:ωa](z),
-    Ta(0,z) ~ functions[:Ta](z),
-    W(0,z) ~ functions[:W](z),
-    ωd(0,z) ~ functions[:ωd](z),
-    Td(0,z) ~ functions[:Td](z)
-]
-
-
-
+#= one by one
 function hide_one_by_one()
-    #= one by one
+
     z_points = range(0.0, stop=L, length=n_seg+1)
 
     W_init_value = [0.1 for _ in 1:n_seg+1]
@@ -216,8 +240,43 @@ function hide_one_by_one()
         ωd(0,z) ~ sitp_ωd_function(z),                 
         Td(0,z) ~ sitp_Td_function(z), 
     ]
-    =#
 end
+=#
+
+#=
+function run_cycles(total_cycles, n_seg=n_seg, dz=dz)
+    results = []
+    # Initial values
+    Ta_init, ωa_init, W_init, ωd_init, Td_init = 273.15 + 60., 0.02, 0.1, 0.015, 273.15 + 60.
+
+    N = n_seg
+
+    vars = [ωa(t,z), Ta(t,z), W(t,z), Td(t,z), ωd(t,z), φw(t,z), Pws(t,z), Da(t,z), Ky(t,z), Qst(t,z)]
+
+    for cycle in 1:total_cycles
+        # Regeneration
+        bcs_regen = bcs_regen(Ta_in=Ta_in_reg, ωa_in=ωa_in_reg, Ta_init=Ta_init, ωa_init=ωa_init, W_init=W_init, ωd_init=ωd_init, Td_init=Td_init)
+        @named pdesys_regen = PDESystem(eqs, bcs_regen_phase, [t ∈ IntervalDomain(0.0, 0.25*time_cycle), z ∈ IntervalDomain(0.0, L)], [t, z], vars)
+        sol_regen = solve(discretize(pdesys_regen, MOLFiniteDifference([z=>dz], t)), Rodas5(); reltol=1e-6, abstol=1e-8, maxiters=10000)
+
+        # Update for process phase
+        Ta_init, ωa_init, W_init, ωd_init, Td_init = sol_regen[Ta(t,z)][end], sol_regen[ωa(t,z)][end], sol_regen[W(t,z)][end], sol_regen[ωd(t,z)][end], sol_regen[Td(t,z)][end]
+
+        # Process phase
+        bcs_process_phase = bcs_process(Ta_in=Ta_in_pro, ωa_in=ωa_in_pro, Ta_init=Ta_init, ωa_init=ωa_init, W_init=W_init, ωd_init=ωd_init, Td_init=Td_init)
+        @named pdesys_process = PDESystem(eqs, bcs_process_phase, [t ∈ IntervalDomain(0.0, 0.75*time_cycle), z ∈ IntervalDomain(0.0, L)], [t, z], vars)
+        sol_process = solve(discretize(pdesys_process, MOLFiniteDifference([z=>dz], t)), Rodas5(); reltol=1e-6, abstol=1e-8, maxiters=10000)
+
+        # Update for next regeneration phase
+        Ta_init, ωa_init, W_init, ωd_init, Td_init = sol_process[Ta(t,z)][end], sol_process[ωa(t,z)][end], sol_process[W(t,z)][end], sol_process[ωd(t,z)][end], sol_process[Td(t,z)][end]
+        
+        push!(results, (sol_regen, sol_process))
+    end
+
+    return results
+end
+=#
+
 
 vars = [ωa(t,z), Ta(t,z), W(t,z), Td(t,z), ωd(t,z), φw(t,z), Pws(t,z), Da(t,z), Ky(t,z), Qst(t,z)]
 
