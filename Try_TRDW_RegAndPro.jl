@@ -131,13 +131,13 @@ function generate_bcs(time_cycle = 512.0, time_reg_per = 0.25; W_ini, ωa_ini, T
 
     for (key, values) in initial_values
         let key = key, values = values
-            # 打印调试信息
+            # Print debugging information
             println("Processing key: $key")
             println("z_points: ", z_points)
             println("Values: ", values)
             println("Boundary check: ", values[1], " (z=0.0), ", values[end], " (z=L)")
 
-            # 使用线性插值器代替 BSpline
+            # Linear interpolation
             local itp
             itp = interpolate((z_points,), values, Gridded(Linear()))
 
@@ -191,7 +191,7 @@ end
 
 
 
-function ini_vect_0(; n_seg)
+function ini_vect_0(n_seg)
     (
         W_ini_vect=[0.1 for _ in 1:n_seg+1], 
         ωa_ini_vect=[0.02 for _ in 1:n_seg+1], 
@@ -204,11 +204,11 @@ end
 
 # 1 pde
 bcs_reg = generate_bcs(
-    W_ini = ini_vect_0(n_seg=20).W_ini_vect, 
-    ωa_ini = ini_vect_0(n_seg=20).ωa_ini_vect, 
-    Ta_ini = ini_vect_0(n_seg=20).Ta_ini_vect, 
-    ωd_ini = ini_vect_0(n_seg=20).ωd_ini_vect, 
-    Td_ini = ini_vect_0(n_seg=20).Td_ini_vect, 
+    W_ini = ini_vect_0(20).W_ini_vect, 
+    ωa_ini = ini_vect_0(20).ωa_ini_vect, 
+    Ta_ini = ini_vect_0(20).Ta_ini_vect, 
+    ωd_ini = ini_vect_0(20).ωd_ini_vect, 
+    Td_ini = ini_vect_0(20).Td_ini_vect, 
     n_seg=20, L=0.2, whichphase="Reg"
     )
 
@@ -268,21 +268,21 @@ Ta_reg_out = sol_reg[Ta(t,z)][:, end] .-273.15
 Ta_pro_out = sol_pro[Ta(t,z)][:, end] .-273.15
 
 plot(t_values_reg, Ta_reg_out, label="Reg Outlet T",
-     xlabel="Time (s)", ylabel="Temperature (°C)", title="Temperature", color=:red)
+     xlabel="Time (s)", ylabel="Temperature (°C)", color=:red)
 hline!([Ta_reg_in - 273.15], label="Reg Inlet T", linestyle=:dash, color=:red)
 plot!(t_values_pro, Ta_pro_out, label="Pro Outlet T",
-     xlabel="Time (s)", ylabel="Temperature (°C)", title="Temperature", color=:purple)
+     xlabel="Time (s)", color=:purple)
 hline!([Ta_pro_in - 273.15], label="Pro Inlet T", linestyle=:dash, color=:purple)
 
 
 
 
-ωa_reg_out = sol_reg[ωa(t,z)][:, end] 
-ωa_pro_out = sol_pro[ωa(t,z)][:, end]
+ωa_reg_out = sol_reg[ωa(t,z)][:, end] .*1000
+ωa_pro_out = sol_pro[ωa(t,z)][:, end] .*1000
 
-plot(t_values_reg, ωa_reg_out, label="Reg Outlet T",
-     xlabel="Time (s)", ylabel="Temperature (°C)", title="Temperature", color=:red)
-hline!([ωa_reg_in], label="Reg Inlet T", linestyle=:dash, color=:red)
-plot!(t_values_pro, ωa_pro_out, label="Pro Outlet T",
-     xlabel="Time (s)", ylabel="Temperature (°C)", title="Temperature", color=:purple)
-hline!([ωa_pro_in], label="Pro Inlet T", linestyle=:dash, color=:purple)
+plot(t_values_reg, ωa_reg_out, label="Reg Outlet ω",
+     xlabel="Time (s)", ylabel="Humidity ratio (g/kg)", color=:red)
+hline!([ωa_reg_in] .*1000, label="Reg Inlet ω", linestyle=:dash, color=:red)
+plot!(t_values_pro, ωa_pro_out, label="Pro Outlet ω",
+     xlabel="Time (s)", color=:purple)
+hline!([ωa_pro_in] .*1000, label="Pro Inlet ω", linestyle=:dash, color=:purple)
