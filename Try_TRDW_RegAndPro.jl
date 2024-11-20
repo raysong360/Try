@@ -23,8 +23,6 @@ P = 2b + 2 * sqrt(b^2 + (a * π)^2) * (3 + (2b / (a * π))^2) / (4 + (2b / (a * 
 h = (Nu * Ka * P) / (4 * A)  # heat transfer coefficient
 Sh = 2.45                   # Sherwood number as constant
 ρa = 1.2                          # Air density (kg/m3)
-A = A                        # Cross-sectional area
-P = P                      # Perimeter
 Cpa = 1009                        # Specific heat of dry air (J/(kg·K))
 Cpv = 2028                        # Specific heat of water vapor (J/(kg·K))
 Cpd = 921                         # Specific heat of desiccant (J/(kg·K))
@@ -89,13 +87,13 @@ Qst_eq = Qst(t,z) ~ Lv * (1.0 + 0.2843 * exp(-10.28 * W(t,z)))
 # Collect all equations
 eqs = [moist_cons_air, energy_cons_air, moist_cons_des, energy_cons_des, wd_φw_eq, Pws_Td_eq, φw_W_eq, Da_eq, Ky_eq, Qst_eq]
 
+
 Ta_pro_in = 273.15 + 34.3
 ωa_pro_in = 0.02
 Ta_reg_in = 273.15 + 100
 ωa_reg_in = 0.005
 
 
-# domain 最好不应该在外面定义的
 L = 0.2             # Thickness of desiccant wheel (m)
 time_cycle = 512.0
 time_pro_per = 0.75
