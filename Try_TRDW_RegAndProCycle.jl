@@ -42,6 +42,7 @@ pars = [u]
 pars_value = Dict(u => 3.0)
 
 
+
 ### 1. Governing Equations ###
 
 # Eq 1: Moisture conservation in air
@@ -90,10 +91,9 @@ eqs = [moist_cons_air, energy_cons_air, moist_cons_des, energy_cons_des, wd_φw_
 Ta_pro_in = 273.15 + 34.3
 ωa_pro_in = 0.02
 Ta_reg_in = 273.15 + 100
-ωa_reg_in = 0.005
+ωa_reg_in = 0.02
 
-#=
-# domain 都不应该在外面定义的
+
 L = 0.2             # Thickness of desiccant wheel (m)
 time_cycle = 512.0
 time_pro_per = 0.75
@@ -103,7 +103,7 @@ n_seg = 20
 dz = L/n_seg
 
 z_points = range(0.0, stop=L, length=n_seg+1)
-=#
+
 
 function generate_bcs(time_cycle = 512.0, time_reg_per = 0.25; W_ini, ωa_ini, Ta_ini, ωd_ini, Td_ini, n_seg, L, whichphase)
 
@@ -191,7 +191,7 @@ end
 
 function ini_vect_0(n_seg)
     (
-        W_ini_vect=[0.1 for _ in 1:n_seg+1], 
+        W_ini_vect=[0.15 for _ in 1:n_seg+1], 
         ωa_ini_vect=[0.02 for _ in 1:n_seg+1], 
         Ta_ini_vect=[273.15 + 40. for _ in 1:n_seg+1], 
         ωd_ini_vect=[0.015 for _ in 1:n_seg+1], 
@@ -200,104 +200,161 @@ function ini_vect_0(n_seg)
 end
 
 
-function run_cycles(time_cycle = 512.0, time_reg_per = 0.25; total_cycles, n_seg, L)
-    results = []
-    results_reg = []
-    results_pro = []
+# 1 cycle
+bcs_reg = generate_bcs(
+    W_ini = ini_vect_0(20).W_ini_vect, 
+    ωa_ini = ini_vect_0(20).ωa_ini_vect, 
+    Ta_ini = ini_vect_0(20).Ta_ini_vect, 
+    ωd_ini = ini_vect_0(20).ωd_ini_vect, 
+    Td_ini = ini_vect_0(20).Td_ini_vect, 
+    n_seg=20, L=0.2, whichphase="Reg"
+    )
 
-    vars = [ωa(t,z), Ta(t,z), W(t,z), Td(t,z), ωd(t,z), φw(t,z), Pws(t,z), Da(t,z), Ky(t,z), Qst(t,z)]
+println("first reg bc: ", bcs_reg)
 
-    dz = L/n_seg
-    z_points = range(0.0, stop=L, length=n_seg+1)
+vars = [ωa(t,z), Ta(t,z), W(t,z), Td(t,z), ωd(t,z), φw(t,z), Pws(t,z), Da(t,z), Ky(t,z), Qst(t,z)]
 
-    ini_vect_0(n_seg)
+
+domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per),
+           z ∈ IntervalDomain(0.0, L)]
+
+@named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value) 
+discretization = MOLFiniteDifference([z=>L/n_seg], t, approx_order=2)
+odeprob_reg = discretize(pdesys_reg, discretization)
+
+# 注意pars的顺序：[u, Ka, Nu, a, b, r0, A, P, h, Sh, ρa, Cpa, Cpv, Cpd, Cpl, Cpm, Lv, fd, fm, Patm, p, p0, T0]
+# odeprob = remake(odeprob, p = [3])
+sol_reg = solve(odeprob_reg, Rodas5())
+
+
+
+sol_reg[ωa(t,z)] .*1000
+sol_reg[Td(t,z)] .-273.15
+sol_reg[ωd(t,z)] .*1000
+sol_reg[W(t,z)]
+
+sol_reg[φw(t,z)]
+sol_reg[Pws(t,z)]
+sol_reg[Da(t,z)]
+sol_reg[Ky(t,z)]
+sol_reg[Qst(t,z)]
+
+sol_reg[Ta(t,z)] .-273.15
+
+sol_reg[W(t,z)][end, :]
+sol_reg[Ta(t, z)][end, :].-273.15
+
+bcs_pro = generate_bcs(
+    W_ini = reverse(sol_reg[W(t,z)][end, :]), 
+    ωa_ini = reverse(sol_reg[ωa(t,z)][end, :]), 
+    Ta_ini = reverse(sol_reg[Ta(t,z)][end, :]), 
+    ωd_ini = reverse(sol_reg[ωd(t,z)][end, :]), 
+    Td_ini = reverse(sol_reg[Td(t,z)][end, :]), 
+    n_seg=20, L=0.2, whichphase="Pro"
+    )
+
+domains_pro = [t ∈ IntervalDomain(time_cycle * time_reg_per, time_cycle),
+            z ∈ IntervalDomain(0.0, L)]
+@named pdesys_pro = PDESystem(eqs, bcs_pro, domains_pro, [t,z], vars, pars; defaults=pars_value) 
+discretization = MOLFiniteDifference([z=>L/n_seg], t, approx_order=2)
+odeprob_pro = discretize(pdesys_pro, discretization)
+sol_pro = solve(odeprob_pro, Rodas5())
+
+sol_pro[Ta(t,z)] .-273.15
+sol_pro[ωa(t,z)] .* 1000
+
+t_values_reg = sol_reg.t
+t_values_pro = sol_pro.t
+
+Ta_reg_out = sol_reg[Ta(t,z)][:, end] .-273.15
+Ta_pro_out = sol_pro[Ta(t,z)][:, end] .-273.15
+
+plot(t_values_reg, Ta_reg_out, label="Reg Outlet T",
+     xlabel="Time (s)", ylabel="Temperature (°C)", color=:red)
+hline!([Ta_reg_in - 273.15], label="Reg Inlet T", linestyle=:dash, color=:red)
+plot!(t_values_pro, Ta_pro_out, label="Pro Outlet T",
+     xlabel="Time (s)", color=:purple)
+hline!([Ta_pro_in - 273.15], label="Pro Inlet T", linestyle=:dash, color=:purple)
+
+
+ωa_reg_out = sol_reg[ωa(t,z)][:, end] .*1000
+ωa_pro_out = sol_pro[ωa(t,z)][:, end] .*1000
+
+plot(t_values_reg, ωa_reg_out, label="Reg Outlet ω",
+     xlabel="Time (s)", ylabel="Humidity ratio (g/kg)", color=:red)
+hline!([ωa_reg_in] .*1000, label="Reg Inlet ω", linestyle=:dash, color=:red)
+plot!(t_values_pro, ωa_pro_out, label="Pro Outlet ω",
+     xlabel="Time (s)", color=:purple)
+hline!([ωa_pro_in] .*1000, label="Pro Inlet ω", linestyle=:dash, color=:purple)
+
+
+solutions = Dict()
+solutions["cycle1_reg"] = sol_reg
+solutions["cycle1_pro"] = sol_pro
+
+
+num_cycles = 5  # 总周期数，包括第一个
+for i in 2:num_cycles
+
+    # Regeneration phase
     bcs_reg = generate_bcs(
-        W_ini = ini_vect_0(n_seg).W_ini_vect, 
-        ωa_ini = ini_vect_0(n_seg).ωa_ini_vect, 
-        Ta_ini = ini_vect_0(n_seg).Ta_ini_vect, 
-        ωd_ini = ini_vect_0(n_seg).ωd_ini_vect, 
-        Td_ini = ini_vect_0(n_seg).Td_ini_vect, 
+        W_ini = reverse(solutions["cycle$(i-1)_pro"][W(t,z)][end, :]), 
+        ωa_ini = reverse(solutions["cycle$(i-1)_pro"][ωa(t,z)][end, :]), 
+        Ta_ini = reverse(solutions["cycle$(i-1)_pro"][Ta(t,z)][end, :]), 
+        ωd_ini = reverse(solutions["cycle$(i-1)_pro"][ωd(t,z)][end, :]), 
+        Td_ini = reverse(solutions["cycle$(i-1)_pro"][Td(t,z)][end, :]), 
         n_seg=n_seg, L=L, whichphase="Reg"
-        )
+    )
+    
+    domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per),
+                   z ∈ IntervalDomain(0.0, L)]
 
-    for i in 1:total_cycles
-        println("Starting Cycle $i...")
+    @named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value)
+    odeprob_reg = discretize(pdesys_reg, discretization)
+    sol_reg = solve(odeprob_reg, Rodas5())
+    solutions["cycle$(i)_reg"] = sol_reg
 
-        # Regeneration
-        domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per), z ∈ IntervalDomain(0.0, L)]
-        @named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value) 
-        discretization = MOLFiniteDifference([z=>L/n_seg], t, approx_order=2)
-        odeprob_reg = discretize(pdesys_reg, discretization)
-        sol_reg = solve(odeprob_reg, Rodas5())
-        push!(results_reg, sol_reg)
-        println("reverse(sol_reg[Ta(t,z)][end, :]", reverse(sol_reg[Ta(t,z)][end, :] .-273.15))
+    # Process phase
+    bcs_pro = generate_bcs(
+        W_ini = reverse(solutions["cycle$(i)_reg"][W(t,z)][end, :]), 
+        ωa_ini = reverse(solutions["cycle$(i)_reg"][ωa(t,z)][end, :]), 
+        Ta_ini = reverse(solutions["cycle$(i)_reg"][Ta(t,z)][end, :]), 
+        ωd_ini = reverse(solutions["cycle$(i)_reg"][ωd(t,z)][end, :]), 
+        Td_ini = reverse(solutions["cycle$(i)_reg"][Td(t,z)][end, :]), 
+        n_seg=n_seg, L=L, whichphase="Pro"
+    )
+    
+    domains_pro = [t ∈ IntervalDomain(time_cycle * time_reg_per, time_cycle),
+                   z ∈ IntervalDomain(0.0, L)]
 
-        
-        # Process 
-        bcs_pro = generate_bcs(
-            W_ini = reverse(sol_reg[W(t,z)][end, :]), 
-            ωa_ini = reverse(sol_reg[ωa(t,z)][end, :]), 
-            Ta_ini = reverse(sol_reg[Ta(t,z)][end, :]), 
-            ωd_ini = reverse(sol_reg[ωd(t,z)][end, :]), 
-            Td_ini = reverse(sol_reg[Td(t,z)][end, :]), 
-            n_seg=n_seg, L=L, whichphase="Pro"
-            )
-
-        domains_pro = [t ∈ IntervalDomain(time_cycle * time_reg_per, time_cycle), z ∈ IntervalDomain(0.0, L)]
-        @named pdesys_pro = PDESystem(eqs, bcs_pro, domains_pro, [t,z], vars, pars; defaults=pars_value) 
-        discretization = MOLFiniteDifference([z=>L/n_seg], t, approx_order=2)
-        odeprob_pro = discretize(pdesys_pro, discretization)
-        sol_pro = solve(odeprob_pro, Rodas5())
-        
-        println("sol_pro[Ta(t,z)][1, :]", sol_pro[Ta(t,z)][1, :] .-273.15)
-
-        #=
-        bcs_reg = generate_bcs(
-            W_ini = reverse(sol_pro[W(t,z)][end, :]), 
-            ωa_ini = reverse(sol_pro[ωa(t,z)][end, :]), 
-            Ta_ini = reverse(sol_pro[Ta(t,z)][end, :]), 
-            ωd_ini = reverse(sol_pro[ωd(t,z)][end, :]), 
-            Td_ini = reverse(sol_pro[Td(t,z)][end, :]), 
-            n_seg=n_seg, L=L, whichphase="Reg"
-            )
-        
-        push!(results_pro, sol_pro)
-        =#
-    end
-
-    return 1
+    @named pdesys_pro = PDESystem(eqs, bcs_pro, domains_pro, [t,z], vars, pars; defaults=pars_value)
+    odeprob_pro = discretize(pdesys_pro, discretization)
+    sol_pro = solve(odeprob_pro, Rodas5())
+    solutions["cycle$(i)_pro"] = sol_pro
 end
 
-cycles_number = 1
-run_cycles(total_cycles=cycles_number, n_seg=20, L=0.2)
-results_reg, results_pro = run_cycles(total_cycles=cycles_number, n_seg=20, L=0.2)[1], run_cycles(total_cycles=cycles_number, n_seg=20, L=0.2)[2]
-results_reg[1][Ta(t, z)] .-273.15
-results_pro[1][Ta(t, z)] .-273.15
+sol_reg_n = solutions["cycle5_reg"]
+sol_pro_n = solutions["cycle5_pro"]
 
-results[1][1][Ta(t, z)][1, :].-273.15
-reverse(results[1][1][Ta(t, z)][end, :].-273.15)
-results[1][2][Ta(t, z)][1, :].-273.15
+t_values_reg = sol_reg_n.t
+t_values_pro = sol_pro_n.t
 
-which_cycle = 1
-reg_res = results[which_cycle][1]
-pro_res = results[which_cycle][2]
+Ta_reg_out = sol_reg_n[Ta(t,z)][:, end] .-273.15
+Ta_pro_out = sol_pro_n[Ta(t,z)][:, end] .-273.15
 
-reg_res[Ta(t, z)].-273.15
-pro_res[Ta(t, z)].-273.15
-
-# outlet temperature
-# reg_last second
-t_values_reg = reg_res.t
-Ta_outlet_reg = reg_res[Ta(t, z)][:, end] .- 273.15  
-
-# pro_last second
-t_values_pro = pro_res.t
-Ta_outlet_pro = pro_res[Ta(t, z)][:, end] .- 273.15 
-
-plot(t_values_reg, Ta_outlet_reg, label="Reg Outlet T",
-     xlabel="Time (s)", ylabel="Temperature (°C)", title="Temperature", color=:red)
+plot(t_values_reg, Ta_reg_out, label="Reg Outlet T",
+     xlabel="Time (s)", ylabel="Temperature (°C)", color=:red)
 hline!([Ta_reg_in - 273.15], label="Reg Inlet T", linestyle=:dash, color=:red)
-plot!(t_values_pro .+ t_values_reg[end], Ta_outlet_pro, label="Pro Outlet T", color=:blue)
-hline!([Ta_pro_in - 273.15], label="Pro Inlet T", linestyle=:dash, legend=:topright, color=:blue)
+plot!(t_values_pro, Ta_pro_out, label="Pro Outlet T",
+     xlabel="Time (s)", color=:purple)
+hline!([Ta_pro_in - 273.15], label="Pro Inlet T", linestyle=:dash, color=:purple)
 
+ωa_reg_out = sol_reg_n[ωa(t,z)][:, end] .*1000
+ωa_pro_out = sol_pro_n[ωa(t,z)][:, end] .*1000
 
+plot(t_values_reg, ωa_reg_out, label="Reg Outlet ω",
+     xlabel="Time (s)", ylabel="Humidity ratio (g/kg)", color=:red)
+hline!([ωa_reg_in] .*1000, label="Reg Inlet ω", linestyle=:dash, color=:red)
+plot!(t_values_pro, ωa_pro_out, label="Pro Outlet ω",
+     xlabel="Time (s)", color=:purple)
+hline!([ωa_pro_in] .*1000, label="Pro Inlet ω", linestyle=:dash, color=:purple)
