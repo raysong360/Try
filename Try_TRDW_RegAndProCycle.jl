@@ -48,17 +48,13 @@ pars_value = Dict(u => 3.0)
 # Eq 1: Moisture conservation in air
 moist_cons_air = Dt(ωa(t,z)) + u * Dz(ωa(t,z)) ~ (Ky(t,z) * P / (ρa * A)) * (ωd(t,z) - ωa(t,z))
 
-
-
 # Eq 2: Energy conservation in air
 energy_cons_air = Dt(Ta(t,z)) + u * Dz(Ta(t,z)) ~ (h * P / (ρa * A * (Cpa + ωa(t,z) * Cpv))) * (Td(t,z) - Ta(t,z)) + (Ky(t,z) * Cpv * P / (ρa * A * (Cpa + ωa(t,z) * Cpv))) * (ωd(t,z) - ωa(t,z)) * (Ta(t,z) - Td(t,z))
 
 # Eq 3: Moisture conservation in desiccant     # ∂W/∂t
 moist_cons_des = Dt(W(t,z)) ~ (2 * Ky(t,z) * P / fd) * (ωa(t,z) - ωd(t,z))
 
-
 # Eq 4: Energy conservation in desiccant
-
 energy_cons_des = Dt(Td(t,z)) ~ (2 * h * P / (fd * (Cpd + W(t,z) * Cpl) + fm * Cpm)) * (Ta(t,z) - Td(t,z)) +
                               (2 * Ky(t,z) * P * Qst(t,z) / (fd * (Cpd + W(t,z) * Cpl) + fm * Cpm)) * (ωa(t,z) - ωd(t,z)) +
                               (2 * Ky(t,z) * P * Cpv / (fd * (Cpd + W(t,z) * Cpl) + fm * Cpm)) * (ωa(t,z) - ωd(t,z)) * (Td(t,z) - Ta(t,z))
@@ -88,20 +84,19 @@ Qst_eq = Qst(t,z) ~ Lv * (1.0 + 0.2843 * exp(-10.28 * W(t,z)))
 eqs = [moist_cons_air, energy_cons_air, moist_cons_des, energy_cons_des, wd_φw_eq, Pws_Td_eq, φw_W_eq, Da_eq, Ky_eq, Qst_eq]
 
 
+# boundary condition and domain values (global)
 Ta_pro_in = 273.15 + 34.3
 ωa_pro_in = 0.02
 Ta_reg_in = 273.15 + 100
 ωa_reg_in = 0.02
-
-
-L = 0.2             # Thickness of desiccant wheel (m)
+             
 time_cycle = 512.0
 time_pro_per = 0.75
 time_reg_per = 1 - time_pro_per
 
+L = 0.2
 n_seg = 20
 dz = L/n_seg
-
 z_points = range(0.0, stop=L, length=n_seg+1)
 
 
@@ -187,8 +182,7 @@ function generate_bcs(time_cycle = 512.0, time_reg_per = 0.25; W_ini, ωa_ini, T
     end
 end
 
-
-
+# Initial values for the first cycle
 function ini_vect_0(n_seg)
     (
         W_ini_vect=[0.15 for _ in 1:n_seg+1], 
@@ -200,7 +194,7 @@ function ini_vect_0(n_seg)
 end
 
 
-# 1 cycle
+# 1st cycle
 bcs_reg = generate_bcs(
     W_ini = ini_vect_0(20).W_ini_vect, 
     ωa_ini = ini_vect_0(20).ωa_ini_vect, 
@@ -226,8 +220,7 @@ odeprob_reg = discretize(pdesys_reg, discretization)
 # odeprob = remake(odeprob, p = [3])
 sol_reg = solve(odeprob_reg, Rodas5())
 
-
-
+#=
 sol_reg[ωa(t,z)] .*1000
 sol_reg[Td(t,z)] .-273.15
 sol_reg[ωd(t,z)] .*1000
@@ -243,6 +236,7 @@ sol_reg[Ta(t,z)] .-273.15
 
 sol_reg[W(t,z)][end, :]
 sol_reg[Ta(t, z)][end, :].-273.15
+=#
 
 bcs_pro = generate_bcs(
     W_ini = reverse(sol_reg[W(t,z)][end, :]), 
@@ -293,7 +287,9 @@ solutions["cycle1_reg"] = sol_reg
 solutions["cycle1_pro"] = sol_pro
 
 
-num_cycles = 5  # 总周期数，包括第一个
+
+# More cycles, using loop
+num_cycles = 10  
 for i in 2:num_cycles
 
     # Regeneration phase
@@ -333,28 +329,39 @@ for i in 2:num_cycles
     solutions["cycle$(i)_pro"] = sol_pro
 end
 
-sol_reg_n = solutions["cycle5_reg"]
-sol_pro_n = solutions["cycle5_pro"]
 
+
+# sol of the last cycle
+sol_reg_n = solutions["cycle$(num_cycles)_reg"]
+sol_pro_n = solutions["cycle$(num_cycles)_pro"]
+
+# time points
 t_values_reg = sol_reg_n.t
 t_values_pro = sol_pro_n.t
 
-Ta_reg_out = sol_reg_n[Ta(t,z)][:, end] .-273.15
-Ta_pro_out = sol_pro_n[Ta(t,z)][:, end] .-273.15
+# Ta out
+Ta_reg_out = sol_reg_n[Ta(t,z)][:, end] .- 273.15
+Ta_pro_out = sol_pro_n[Ta(t,z)][:, end] .- 273.15
+plot_variable(t_values_reg, t_values_pro, Ta_reg_out, Ta_pro_out, 
+              Ta_reg_in - 273.15, Ta_pro_in - 273.15,
+              "Temperature (°C)", "Reg Outlet T", "Pro Outlet T")
 
-plot(t_values_reg, Ta_reg_out, label="Reg Outlet T",
-     xlabel="Time (s)", ylabel="Temperature (°C)", color=:red)
-hline!([Ta_reg_in - 273.15], label="Reg Inlet T", linestyle=:dash, color=:red)
-plot!(t_values_pro, Ta_pro_out, label="Pro Outlet T",
-     xlabel="Time (s)", color=:purple)
-hline!([Ta_pro_in - 273.15], label="Pro Inlet T", linestyle=:dash, color=:purple)
+# ωa out
+ωa_reg_out = sol_reg_n[ωa(t,z)][:, end]
+ωa_pro_out = sol_pro_n[ωa(t,z)][:, end]
+plot_variable(t_values_reg, t_values_pro, ωa_reg_out, ωa_pro_out, 
+              ωa_reg_in, ωa_pro_in,
+              "Humidity ratio (g/kg)", "Reg Outlet ω", "Pro Outlet ω", 1000.0)
 
-ωa_reg_out = sol_reg_n[ωa(t,z)][:, end] .*1000
-ωa_pro_out = sol_pro_n[ωa(t,z)][:, end] .*1000
 
-plot(t_values_reg, ωa_reg_out, label="Reg Outlet ω",
-     xlabel="Time (s)", ylabel="Humidity ratio (g/kg)", color=:red)
-hline!([ωa_reg_in] .*1000, label="Reg Inlet ω", linestyle=:dash, color=:red)
-plot!(t_values_pro, ωa_pro_out, label="Pro Outlet ω",
-     xlabel="Time (s)", color=:purple)
-hline!([ωa_pro_in] .*1000, label="Pro Inlet ω", linestyle=:dash, color=:purple)
+
+#=
+# Function of plots
+function plot_variable(t_values_reg, t_values_pro, var_reg_out, var_pro_out, var_reg_in, var_pro_in, ylabel, label_reg, label_pro, unit_conv=1.0)
+    plot(t_values_reg, var_reg_out .* unit_conv, label=label_reg,
+         xlabel="Time (s)", ylabel=ylabel, color=:red)
+    hline!([var_reg_in .* unit_conv], label="$(label_reg) Inlet", linestyle=:dash, color=:red)
+    plot!(t_values_pro, var_pro_out .* unit_conv, label=label_pro, color=:purple)
+    hline!([var_pro_in .* unit_conv], label="$(label_pro) Inlet", linestyle=:dash, color=:purple)
+end
+=#
