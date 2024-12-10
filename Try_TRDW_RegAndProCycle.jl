@@ -210,7 +210,7 @@ println("first reg bc: ", bcs_reg)
 vars = [ωa(t,z), Ta(t,z), W(t,z), Td(t,z), ωd(t,z), φw(t,z), Pws(t,z), Da(t,z), Ky(t,z), Qst(t,z)]
 
 
-domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per),
+domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per - 0.01),
            z ∈ IntervalDomain(0.0, L)]
 
 @named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value_reg) 
@@ -304,7 +304,7 @@ for i in 2:num_cycles
         n_seg=n_seg, L=L, whichphase="Reg"
     )
     
-    domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per),
+    domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per - 0.01),
                    z ∈ IntervalDomain(0.0, L)]
 
     @named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value_reg)
@@ -383,6 +383,7 @@ df_reg = DataFrame(
     temperature=Ta_reg_out,
     humidity_ratio=ωa_reg_out
 )
+# df_reg = df_reg[df_reg.time .!= 128, :]
 
 df_pro = DataFrame(
     time=t_values_pro,
@@ -392,7 +393,7 @@ df_pro = DataFrame(
 
 df_combined = vcat(df_reg, df_pro)
 
-
+cd(@__DIR__) 
 CSV.write("combined_results.csv", df_combined)
 =#
 
