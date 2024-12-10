@@ -39,8 +39,8 @@ T0 = 256.0
 
 @parameters u    # Dependent variables
 pars = [u]
-pars_value = Dict(u => 3.0)
-
+pars_value_reg = Dict(u => 1.5)
+pars_value_pro = Dict(u => 2.0)
 
 
 ### 1. Governing Equations ###
@@ -86,18 +86,19 @@ eqs = [moist_cons_air, energy_cons_air, moist_cons_des, energy_cons_des, wd_φw_
 
 # boundary condition and domain values (global)
 Ta_pro_in = 273.15 + 34.3
-ωa_pro_in = 0.02
-Ta_reg_in = 273.15 + 100
-ωa_reg_in = 0.02
+ωa_pro_in = 0.01925
+Ta_reg_in = 273.15 + 95
+ωa_reg_in = 0.01925
              
 time_cycle = 512.0
 time_pro_per = 0.75
 time_reg_per = 1 - time_pro_per
 
 L = 0.2
-n_seg = 20
-dz = L/n_seg
+n_seg = 20  # dz=0.01
+dz = L/n_seg 
 z_points = range(0.0, stop=L, length=n_seg+1)
+tstep = 0.0512
 
 
 function generate_bcs(time_cycle = 512.0, time_reg_per = 0.25; W_ini, ωa_ini, Ta_ini, ωd_ini, Td_ini, n_seg, L, whichphase)
@@ -212,13 +213,13 @@ vars = [ωa(t,z), Ta(t,z), W(t,z), Td(t,z), ωd(t,z), φw(t,z), Pws(t,z), Da(t,z
 domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per),
            z ∈ IntervalDomain(0.0, L)]
 
-@named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value) 
+@named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value_reg) 
 discretization = MOLFiniteDifference([z=>L/n_seg], t, approx_order=2)
 odeprob_reg = discretize(pdesys_reg, discretization)
 
 # 注意pars的顺序：[u, Ka, Nu, a, b, r0, A, P, h, Sh, ρa, Cpa, Cpv, Cpd, Cpl, Cpm, Lv, fd, fm, Patm, p, p0, T0]
 # odeprob = remake(odeprob, p = [3])
-sol_reg = solve(odeprob_reg, Rodas5())
+sol_reg = solve(odeprob_reg, Rodas5(), dt=tstep)
 
 #=
 sol_reg[ωa(t,z)] .*1000
@@ -249,7 +250,7 @@ bcs_pro = generate_bcs(
 
 domains_pro = [t ∈ IntervalDomain(time_cycle * time_reg_per, time_cycle),
             z ∈ IntervalDomain(0.0, L)]
-@named pdesys_pro = PDESystem(eqs, bcs_pro, domains_pro, [t,z], vars, pars; defaults=pars_value) 
+@named pdesys_pro = PDESystem(eqs, bcs_pro, domains_pro, [t,z], vars, pars; defaults=pars_value_pro) 
 discretization = MOLFiniteDifference([z=>L/n_seg], t, approx_order=2)
 odeprob_pro = discretize(pdesys_pro, discretization)
 sol_pro = solve(odeprob_pro, Rodas5())
@@ -288,8 +289,9 @@ solutions["cycle1_pro"] = sol_pro
 
 
 
-# More cycles, using loop
-num_cycles = 10  
+
+# More cycles
+num_cycles = 10  # 总周期数，包括第一个
 for i in 2:num_cycles
 
     # Regeneration phase
@@ -305,9 +307,9 @@ for i in 2:num_cycles
     domains_reg = [t ∈ IntervalDomain(0.0, time_cycle * time_reg_per),
                    z ∈ IntervalDomain(0.0, L)]
 
-    @named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value)
+    @named pdesys_reg = PDESystem(eqs, bcs_reg, domains_reg, [t,z], vars, pars; defaults=pars_value_reg)
     odeprob_reg = discretize(pdesys_reg, discretization)
-    sol_reg = solve(odeprob_reg, Rodas5())
+    sol_reg = solve(odeprob_reg, Rodas5(), dt=tstep)
     solutions["cycle$(i)_reg"] = sol_reg
 
     # Process phase
@@ -323,13 +325,88 @@ for i in 2:num_cycles
     domains_pro = [t ∈ IntervalDomain(time_cycle * time_reg_per, time_cycle),
                    z ∈ IntervalDomain(0.0, L)]
 
-    @named pdesys_pro = PDESystem(eqs, bcs_pro, domains_pro, [t,z], vars, pars; defaults=pars_value)
+    @named pdesys_pro = PDESystem(eqs, bcs_pro, domains_pro, [t,z], vars, pars; defaults=pars_value_pro)
     odeprob_pro = discretize(pdesys_pro, discretization)
-    sol_pro = solve(odeprob_pro, Rodas5())
+    sol_pro = solve(odeprob_pro, Rodas5(), dt=tstep)
     solutions["cycle$(i)_pro"] = sol_pro
 end
 
 
+
+
+
+# plot Ta ωa at last cycle
+
+sol_reg_n = solutions["cycle$(num_cycles)_reg"]
+sol_pro_n = solutions["cycle$(num_cycles)_pro"]
+
+t_values_reg = sol_reg_n.t
+t_values_pro = sol_pro_n.t
+
+Ta_reg_out = sol_reg_n[Ta(t,z)][:, end] .-273.15
+Ta_pro_out = sol_pro_n[Ta(t,z)][:, end] .-273.15
+
+plot(t_values_reg, Ta_reg_out, label="Reg Outlet T",
+     xlabel="Time (s)", ylabel="Temperature (°C)", color=:red)
+hline!([Ta_reg_in - 273.15], label="Reg Inlet T", linestyle=:dash, color=:red)
+plot!(t_values_pro, Ta_pro_out, label="Pro Outlet T",
+     xlabel="Time (s)", color=:purple)
+hline!([Ta_pro_in - 273.15], label="Pro Inlet T", linestyle=:dash, color=:purple)
+
+ωa_reg_out = sol_reg_n[ωa(t,z)][:, end] .*1000
+ωa_pro_out = sol_pro_n[ωa(t,z)][:, end] .*1000
+
+plot(t_values_reg, ωa_reg_out, label="Reg Outlet ω",
+     xlabel="Time (s)", ylabel="Humidity ratio (g/kg)", color=:red)
+hline!([ωa_reg_in] .*1000, label="Reg Inlet ω", linestyle=:dash, color=:red)
+plot!(t_values_pro, ωa_pro_out, label="Pro Outlet ω",
+     xlabel="Time (s)", color=:purple)
+hline!([ωa_pro_in] .*1000, label="Pro Inlet ω", linestyle=:dash, color=:purple)
+
+
+#=
+# to CSV
+using CSV, DataFrames
+
+# 假设以下变量是已计算的结果
+t_values_reg = sol_reg_n.t
+t_values_pro = sol_pro_n.t
+
+Ta_reg_out = sol_reg_n[Ta(t, z)][:, end] .- 273.15  # 摄氏温度
+Ta_pro_out = sol_pro_n[Ta(t, z)][:, end] .- 273.15
+
+ωa_reg_out = sol_reg_n[ωa(t, z)][:, end] .* 1000   # 转为 g/kg
+ωa_pro_out = sol_pro_n[ωa(t, z)][:, end] .* 1000
+
+df_reg = DataFrame(
+    time=t_values_reg,
+    temperature=Ta_reg_out,
+    humidity_ratio=ωa_reg_out
+)
+
+df_pro = DataFrame(
+    time=t_values_pro,
+    temperature=Ta_pro_out,
+    humidity_ratio=ωa_pro_out
+)
+
+df_combined = vcat(df_reg, df_pro)
+
+
+CSV.write("combined_results.csv", df_combined)
+=#
+
+
+
+#=
+# Function of plots
+function plot_variable(t_values_reg, t_values_pro, var_reg_out, var_pro_out, var_reg_in, var_pro_in, ylabel, label_reg, label_pro, unit_conv=1.0)
+    plot(t_values_reg, var_reg_out .* unit_conv, label=label_reg,
+         xlabel="Time (s)", ylabel=ylabel, color=:red)
+    hline!([var_reg_in .* unit_conv], label="$(label_reg) Inlet", linestyle=:dash, color=:red)
+    plot!(t_values_pro, var_pro_out .* unit_conv, label=label_pro, color=:purple)
+    hline!([var_pro_in .* unit_conv], label="$(label_pro) Inlet", linestyle=:dash, color=:purple)
+end
 
 # sol of the last cycle
 sol_reg_n = solutions["cycle$(num_cycles)_reg"]
@@ -354,14 +431,4 @@ plot_variable(t_values_reg, t_values_pro, ωa_reg_out, ωa_pro_out,
               "Humidity ratio (g/kg)", "Reg Outlet ω", "Pro Outlet ω", 1000.0)
 
 
-
-#=
-# Function of plots
-function plot_variable(t_values_reg, t_values_pro, var_reg_out, var_pro_out, var_reg_in, var_pro_in, ylabel, label_reg, label_pro, unit_conv=1.0)
-    plot(t_values_reg, var_reg_out .* unit_conv, label=label_reg,
-         xlabel="Time (s)", ylabel=ylabel, color=:red)
-    hline!([var_reg_in .* unit_conv], label="$(label_reg) Inlet", linestyle=:dash, color=:red)
-    plot!(t_values_pro, var_pro_out .* unit_conv, label=label_pro, color=:purple)
-    hline!([var_pro_in .* unit_conv], label="$(label_pro) Inlet", linestyle=:dash, color=:purple)
-end
 =#
